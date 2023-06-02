@@ -1,0 +1,17 @@
+[package]
+name = "kube-exec-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+kube = { version = "0.82.2",   features = ["default", "client", "runtime", "derive","ws","admission","rustls-tls"] }
+k8s-openapi = { version = "0.18.0", features = ["v1_26"] }
+tokio = { version = "1.28.2", features = ["full"] }
+tracing = "0.1.37"
+futures = "0.3.28"
+anyhow = "1.0.71"
+tracing-subscriber = "0.3.17"
+serde_json = "1.0.96"
+tokio-util = { version = "0.7.8", features = ["full"] }
