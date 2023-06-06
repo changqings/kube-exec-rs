@@ -21,13 +21,13 @@ async fn main() -> anyhow::Result<()> {
     let container_name = "app";
 
     for pod in pod_list {
-        if get_pod_with_container(&pod, container_name) {
+        if get_running_pod_with_container(&pod, container_name) {
             let name = pod.metadata.name.as_ref().unwrap();
             let ns = pod.metadata.namespace.as_ref().unwrap();
             let kube_pod: Api<Pod> = Api::namespaced(client.clone(), ns.as_str());
 
             let attached = kube_pod
-                .exec(&name, cmd.clone(), &AttachParams::default().stderr(false))
+                .exec(name, cmd.clone(), &AttachParams::default().stderr(false))
                 .await?;
 
             let output = get_output(attached).await;
@@ -61,11 +61,17 @@ async fn get_output(mut attached: AttachedProcess) -> String {
     out
 }
 
-fn get_pod_with_container(p: &Pod, name: &str) -> bool {
+fn get_running_pod_with_container(p: &Pod, name: &str) -> bool {
     for c in p.spec.clone().unwrap().containers {
         if c.name == name {
-            return true;
+            if let Some(pc) = p.status.clone().unwrap().conditions {
+                for st in pc {
+                    if st.type_ == "Ready" {
+                        return true;
+                    }
+                }
+            }
         }
     }
-    return false;
+    false
 }
