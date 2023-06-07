@@ -149,7 +149,9 @@ fn get_deploy_one_pod(pod_list: ObjectList<Pod>) -> Vec<DeploymentPod> {
             ns: dp_value.ns.clone(),
         };
 
-        dp_map.insert(dn.clone(), dp_value);
+        if !dp_map.contains_key(&dn) {
+            dp_map.insert(dn.clone(), dp_value);
+        }
     }
 
     let mut result: Vec<DeploymentPod> = Vec::new();
