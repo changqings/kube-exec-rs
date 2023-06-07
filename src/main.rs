@@ -37,17 +37,16 @@ impl Ord for DeploymentNs {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let client: Client = Client::try_default().await?;
-
     let pods_all_ns: Api<Pod> = Api::all(client.clone());
 
     //
     let list_params: ListParams = ListParams::default().labels("");
-    //
     let pod_list = pods_all_ns.list(&list_params).await?;
-
     let cmd = vec!["cat", "/etc/os-release"];
 
+    //
     let dp_list = get_deploy_one_pod(pod_list);
+
     for dp in dp_list {
         let name = dp.pod;
         let ns = dp.ns;
@@ -57,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
             .exec(
                 &name,
                 cmd.clone(),
-                &AttachParams::default().stderr(false).container("app"),
+                &AttachParams::default().stderr(true).container("app"),
             )
             .await?;
 
