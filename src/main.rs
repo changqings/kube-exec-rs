@@ -21,6 +21,11 @@ struct DeploymentNs {
     ns: String,
 }
 
+struct OsVersion {
+    id: String,
+    version: String,
+}
+
 impl PartialOrd for DeploymentNs {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -63,17 +68,22 @@ async fn main() -> anyhow::Result<()> {
         let output = get_output(attached).await;
 
         let lines = output.lines();
+        let mut os = OsVersion {
+            id: String::new(),
+            version: String::new(),
+        };
         for line in lines {
             if line.starts_with("ID=") {
-                println!(
-                    "ns={} pod={} get os={}",
-                    ns,
-                    name,
-                    line.strip_prefix("ID=").unwrap()
-                );
-                break;
+                os.id = line.strip_prefix("ID=").unwrap().to_string();
+            }
+            if line.starts_with("VERSION_ID=") {
+                os.version = line.strip_prefix("VERSION_ID=").unwrap().to_string();
             }
         }
+        println!(
+            "ns={} pod={} get os={} version={}",
+            ns, name, os.id, os.version
+        );
     }
 
     Ok(())
