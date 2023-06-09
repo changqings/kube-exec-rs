@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, thread, time::Duration};
 
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod;
@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
             "ns={} pod={} get os={} version={}",
             ns, name, os.id, os.version
         );
+        thread::sleep(Duration::from_millis(200));
     }
 
     Ok(())
