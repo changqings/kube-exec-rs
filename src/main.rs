@@ -50,18 +50,16 @@ async fn main() -> anyhow::Result<()> {
     let cmd = vec!["cat", "/etc/os-release"];
 
     //
-    let dp_list = get_deploy_one_pod(pod_list);
+    let dp_list: Vec<DeploymentPod> = get_deploy_one_pod(pod_list);
 
     for dp in dp_list {
-        let name = dp.pod;
-        let ns = dp.ns;
-        let kube_pod: Api<Pod> = Api::namespaced(client.clone(), ns.as_str());
+        let kube_pod: Api<Pod> = Api::namespaced(client.clone(), &dp.ns);
 
         let attached = kube_pod
             .exec(
-                &name,
+                &dp.pod,
                 cmd.clone(),
-                &AttachParams::default().stderr(true).container("app"),
+                &AttachParams::default().container("app"),
             )
             .await?;
 
@@ -82,22 +80,17 @@ async fn main() -> anyhow::Result<()> {
         }
         println!(
             "ns={} pod={} get os={} version={}",
-            ns, name, os.id, os.version
+            dp.ns, dp.pod, os.id, os.version
         );
-        thread::sleep(Duration::from_millis(200));
     }
 
     Ok(())
 }
 
 async fn get_output(mut attached: AttachedProcess) -> String {
-    let stdout = tokio_util::io::ReaderStream::new(attached.stdout().unwrap());
-    let out: String = stdout
-        .filter_map(|r| async { r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok()) })
-        .collect::<Vec<_>>()
-        .await
-        .join("");
-    attached.join().await.unwrap();
+    let mut stdout = tokio_util::io::ReaderStream::new(attached.stdout().unwrap());
+    let out = String::from_utf8(stdout.next().await.unwrap().unwrap().to_vec()).unwrap();
+    attached.take_status().unwrap().await;
     out
 }
 
