@@ -8,6 +8,7 @@ use kube::{
     core::ObjectList,
     Client, ResourceExt,
 };
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Clone)]
 struct DeploymentPod {
@@ -53,39 +54,41 @@ async fn main() -> anyhow::Result<()> {
                 .clone()
                 .and_then(|spec| spec.containers.into_iter().find(|c| c.name == "app"))
             {
-                // if get_running_pod(&pod.status.as_ref().unwrap()) {
-                let cmd = vec!["cat", "/etc/os-release"];
-                let attached: AttachedProcess = pods
-                    .exec(
-                        pod.name_any().as_ref(),
-                        cmd,
-                        &AttachParams::default().container(container.name),
-                    )
-                    .await?;
-                // attached.abort();
-                // println!("next");
-                let output = get_output(attached).await;
+                if get_running_pod(&pod.status.as_ref().unwrap()) {
+                    let cmd = vec!["cat", "/etc/os-release"];
+                    let mut attached: AttachedProcess = pods
+                        .exec(
+                            pod.name_any().as_ref(),
+                            cmd,
+                            &AttachParams::interactive_tty().container(container.name),
+                        )
+                        .await?;
+                    // let output = get_output(attached).await;
+                    let mut stdouu_reader = attached.stdout().unwrap();
+                    let mut output = String::new();
+                    let _ = stdouu_reader.read_to_string(&mut output).await?;
 
-                let lines = output.lines();
-                let mut os = OsVersion {
-                    id: String::new(),
-                    version: String::new(),
-                };
-                for line in lines {
-                    if line.starts_with("ID=") {
-                        os.id = line.strip_prefix("ID=").unwrap().to_string();
+                    let lines = output.lines();
+                    let mut os = OsVersion {
+                        id: String::new(),
+                        version: String::new(),
+                    };
+                    for line in lines {
+                        if line.starts_with("ID=") {
+                            os.id = line.strip_prefix("ID=").unwrap().to_string();
+                        }
+                        if line.starts_with("VERSION_ID=") {
+                            os.version = line.strip_prefix("VERSION_ID=").unwrap().to_string();
+                        }
                     }
-                    if line.starts_with("VERSION_ID=") {
-                        os.version = line.strip_prefix("VERSION_ID=").unwrap().to_string();
-                    }
+                    println!(
+                        "ns={} pod={} get os={} version={}",
+                        ns.name_any(),
+                        pod.name_any(),
+                        os.id,
+                        os.version
+                    );
                 }
-                println!(
-                    "ns={} pod={} get os={} version={}",
-                    ns.name_any(),
-                    pod.name_any(),
-                    os.id,
-                    os.version
-                );
             }
         }
         let _ = tokio::time::sleep(Duration::from_secs(1));
@@ -94,17 +97,6 @@ async fn main() -> anyhow::Result<()> {
     //
 
     Ok(())
-}
-
-async fn get_output(mut attached: AttachedProcess) -> String {
-    let stdout = tokio_util::io::ReaderStream::new(attached.stdout().unwrap());
-    let out = stdout
-        .filter_map(|r| async { r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok()) })
-        .collect::<Vec<_>>()
-        .await
-        .join("");
-    attached.join().await.unwrap();
-    out
 }
 
 fn get_running_pod(p: &PodStatus) -> bool {
