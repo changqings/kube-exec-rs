@@ -1,12 +1,12 @@
-use std::{collections::BTreeMap, thread, time::Duration};
+use std::{collections::BTreeMap, time::Duration};
 
 use futures::StreamExt;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{Namespace, Pod, PodStatus};
 
 use kube::{
     api::{Api, AttachParams, AttachedProcess, ListParams},
     core::ObjectList,
-    Client,
+    Client, ResourceExt,
 };
 
 #[derive(Debug, Clone)]
@@ -41,68 +41,77 @@ impl Ord for DeploymentNs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let client: Client = Client::try_default().await?;
-    let pods_all_ns: Api<Pod> = Api::all(client.clone());
+    let ns_all: Api<Namespace> = Api::all(Client::try_default().await?);
+    let lp = ListParams::default();
+    for ns in ns_all.list(&lp).await? {
+        let ns_name = ns.clone().metadata.name.unwrap();
+        let pods: Api<Pod> = Api::namespaced(Client::try_default().await?, &ns_name);
+        let pods_list: ObjectList<Pod> = pods.list(&lp).await?;
+        for pod in pods_list {
+            if let Some(container) = pod
+                .spec
+                .clone()
+                .and_then(|spec| spec.containers.into_iter().find(|c| c.name == "app"))
+            {
+                // if get_running_pod(&pod.status.as_ref().unwrap()) {
+                let cmd = vec!["cat", "/etc/os-release"];
+                let attached: AttachedProcess = pods
+                    .exec(
+                        pod.name_any().as_ref(),
+                        cmd,
+                        &AttachParams::default().container(container.name),
+                    )
+                    .await?;
+                // attached.abort();
+                // println!("next");
+                let output = get_output(attached).await;
 
-    //
-    let list_params: ListParams = ListParams::default().labels("");
-    let pod_list = pods_all_ns.list(&list_params).await?;
-    let cmd = vec!["cat", "/etc/os-release"];
-
-    //
-    let dp_list: Vec<DeploymentPod> = get_deploy_one_pod(pod_list);
-
-    for dp in dp_list {
-        let kube_pod: Api<Pod> = Api::namespaced(client.clone(), &dp.ns);
-
-        let attached = kube_pod
-            .exec(
-                &dp.pod,
-                cmd.clone(),
-                &AttachParams::default().container("app"),
-            )
-            .await?;
-
-        let output = get_output(attached).await;
-
-        let lines = output.lines();
-        let mut os = OsVersion {
-            id: String::new(),
-            version: String::new(),
-        };
-        for line in lines {
-            if line.starts_with("ID=") {
-                os.id = line.strip_prefix("ID=").unwrap().to_string();
-            }
-            if line.starts_with("VERSION_ID=") {
-                os.version = line.strip_prefix("VERSION_ID=").unwrap().to_string();
+                let lines = output.lines();
+                let mut os = OsVersion {
+                    id: String::new(),
+                    version: String::new(),
+                };
+                for line in lines {
+                    if line.starts_with("ID=") {
+                        os.id = line.strip_prefix("ID=").unwrap().to_string();
+                    }
+                    if line.starts_with("VERSION_ID=") {
+                        os.version = line.strip_prefix("VERSION_ID=").unwrap().to_string();
+                    }
+                }
+                println!(
+                    "ns={} pod={} get os={} version={}",
+                    ns.name_any(),
+                    pod.name_any(),
+                    os.id,
+                    os.version
+                );
             }
         }
-        println!(
-            "ns={} pod={} get os={} version={}",
-            dp.ns, dp.pod, os.id, os.version
-        );
+        let _ = tokio::time::sleep(Duration::from_secs(1));
     }
+
+    //
 
     Ok(())
 }
 
 async fn get_output(mut attached: AttachedProcess) -> String {
-    let mut stdout = tokio_util::io::ReaderStream::new(attached.stdout().unwrap());
-    let out = String::from_utf8(stdout.next().await.unwrap().unwrap().to_vec()).unwrap();
-    attached.take_status().unwrap().await;
+    let stdout = tokio_util::io::ReaderStream::new(attached.stdout().unwrap());
+    let out = stdout
+        .filter_map(|r| async { r.ok().and_then(|v| String::from_utf8(v.to_vec()).ok()) })
+        .collect::<Vec<_>>()
+        .await
+        .join("");
+    attached.join().await.unwrap();
     out
 }
 
-fn get_running_pod_with_container(p: &Pod, name: &str) -> bool {
-    for c in p.spec.clone().unwrap().containers {
-        if c.name == name {
-            if let Some(pc) = p.status.clone().unwrap().conditions {
-                for st in pc {
-                    if st.type_ == "Ready" {
-                        return true;
-                    }
-                }
+fn get_running_pod(p: &PodStatus) -> bool {
+    if let Some(pc) = p.clone().conditions {
+        for st in pc {
+            if st.type_ == "Ready" {
+                return true;
             }
         }
     }
@@ -110,9 +119,8 @@ fn get_running_pod_with_container(p: &Pod, name: &str) -> bool {
 }
 
 // generate by gpt4
-fn get_deploy_one_pod(pod_list: ObjectList<Pod>) -> Vec<DeploymentPod> {
+fn _get_deploy_one_pod(pod_list: &ObjectList<Pod>) -> Vec<DeploymentPod> {
     let mut dp_vec: Vec<DeploymentPod> = Vec::new();
-    let container_name = "app";
 
     for pod in pod_list {
         if let Some(owner_references) = pod.metadata.owner_references.as_ref() {
@@ -131,7 +139,7 @@ fn get_deploy_one_pod(pod_list: ObjectList<Pod>) -> Vec<DeploymentPod> {
                             .unwrap()
                             .to_string();
 
-                        if get_running_pod_with_container(&pod, container_name) {
+                        if get_running_pod(&pod.status.as_ref().unwrap()) {
                             let dp = DeploymentPod {
                                 pod: pod.metadata.name.clone().unwrap(),
                                 deploy: dp_name,
