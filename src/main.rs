@@ -1,16 +1,11 @@
-use std::time::Duration;
-
-// use futures::StreamExt;
 use k8s_openapi::api::core::v1::{Namespace, Pod, PodStatus};
 
 use kube::{
     api::{Api, AttachParams, ListParams},
-    client::ConfigExt,
     core::ObjectList,
-    Client, Config, ResourceExt,
+    Client, ResourceExt,
 };
 use tokio::io::AsyncReadExt;
-use tower::{limit::RateLimitLayer, ServiceBuilder};
 
 struct OsVersion {
     id: String,
