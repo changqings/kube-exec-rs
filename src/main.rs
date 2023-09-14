@@ -85,13 +85,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn get_running_pod(p: Pod) -> bool {
     let owner_ref = p.owner_references();
-    if owner_ref.len() < 1 {
+
+    if  owner_ref.len() < 1 || owner_ref[0].kind == "Job".to_string() {
         return false;
     };
-
-    if owner_ref[0].kind == "Job".to_string() {
-        return false;
-    }
 
     if let Some(s) = p.status {
         if s.container_statuses.is_some() {
