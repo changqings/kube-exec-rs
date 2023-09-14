@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::{Namespace, Pod, PodStatus};
+use k8s_openapi::api::core::v1::{Namespace, Pod};
 
 use kube::{
     api::{Api, AttachParams, ListParams},
@@ -23,11 +23,13 @@ async fn main() -> anyhow::Result<()> {
     //     .service(hyper::Client::builder().build(https));
     // let _k8s_client = Client::new(service, config.default_namespace);
 
-    let ns_all: Api<Namespace> = Api::all(Client::try_default().await?);
+    let k8s_client = Client::try_default().await?;
+
+    let ns_all: Api<Namespace> = Api::all(k8s_client.clone());
     let lp = ListParams::default();
     for ns in ns_all.list(&lp).await? {
         let ns_name = ns.clone().metadata.name.unwrap();
-        let pods: Api<Pod> = Api::namespaced(Client::try_default().await?, &ns_name);
+        let pods: Api<Pod> = Api::namespaced(k8s_client.clone(), &ns_name);
         let pods_list: ObjectList<Pod> = pods.list(&lp).await?;
         for pod in pods_list {
             if let Some(container) = pod
@@ -35,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
                 .clone()
                 .and_then(|spec| spec.containers.into_iter().find(|c| c.name == "app"))
             {
-                if get_running_pod(pod.status.clone()) {
+                if get_running_pod(pod.clone()) {
                     let ap = AttachParams {
                         stderr: false,
                         stdin: true,
@@ -81,8 +83,17 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_running_pod(p: Option<PodStatus>) -> bool {
-    if let Some(s) = p {
+fn get_running_pod(p: Pod) -> bool {
+    let owner_ref = p.owner_references();
+    if owner_ref.len() < 1 {
+        return false;
+    };
+
+    if owner_ref[0].kind == "Job".to_string() {
+        return false;
+    }
+
+    if let Some(s) = p.status {
         if s.container_statuses.is_some() {
             for c in s.container_statuses.unwrap().iter() {
                 if c.name == "app" && c.ready == true {
