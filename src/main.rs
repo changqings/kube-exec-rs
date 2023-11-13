@@ -49,9 +49,9 @@ async fn main() -> anyhow::Result<()> {
                     };
                     let cmd = vec!["cat", "/etc/os-release"];
                     let mut attached = pods.exec(&pod.name_any(), cmd, &ap).await?;
-                    let mut stdouu_reader = attached.stdout().unwrap();
+                    let mut stdout_reader = attached.stdout().unwrap();
                     let mut output = String::new();
-                    stdouu_reader.read_to_string(&mut output).await?;
+                    stdout_reader.read_to_string(&mut output).await?;
 
                     let lines = output.lines();
                     let mut os = OsVersion {
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
 fn get_running_pod(p: Pod) -> bool {
     let owner_ref = p.owner_references();
 
-    if  owner_ref.len() < 1 || owner_ref[0].kind == "Job".to_string() {
+    if owner_ref.len() < 1 || owner_ref[0].kind == "Job".to_string() {
         return false;
     };
 
