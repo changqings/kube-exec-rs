@@ -98,8 +98,6 @@ fn get_running_pod(p: Pod) -> bool {
                 }
             }
         }
-    } else {
-        return false;
     }
 
     return false;
