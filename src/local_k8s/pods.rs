@@ -1,12 +1,9 @@
-use k8s_openapi::api::core::v1::Pod as apiv1_pod;
-use kube::ResourceExt;
-
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 
 use kube::{
     api::{Api, AttachParams, ListParams},
     core::ObjectList,
-    Client,
+    Client, ResourceExt,
 };
 use tokio::io::AsyncReadExt;
 
@@ -93,7 +90,7 @@ async fn pod_exec(pods: Api<Pod>, ns: Namespace) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_running_pod(p: &apiv1_pod) -> bool {
+fn get_running_pod(p: &Pod) -> bool {
     let owner_ref = p.owner_references();
 
     if owner_ref.len() < 1 || owner_ref[0].kind == "Job".to_string() {
