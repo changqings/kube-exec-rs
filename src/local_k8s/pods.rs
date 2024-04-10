@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 
 use kube::{
@@ -13,14 +15,15 @@ pub struct OsVersion {
     pub version: String,
 }
 
-pub async fn print_pods_log() -> anyhow::Result<()> {
+pub async fn pods_exec_log(command: Arc<Vec<&str>>) -> anyhow::Result<()> {
     let (k8s_client, ns_all) = get_all_ns_resources().await;
     let lp_ns = ListParams::default();
     for ns in ns_all.list(&lp_ns).await? {
         let ns_name = ns.clone().metadata.name.unwrap();
         let pods: Api<Pod> = Api::namespaced(k8s_client.clone(), &ns_name);
-        pod_exec(pods, ns).await?
+        pod_exec(pods, ns, command.clone()).await?
     }
+
     Ok(())
 }
 
@@ -38,7 +41,7 @@ async fn get_all_ns_resources() -> (Client, Api<Namespace>) {
     return (client.clone(), Api::all(client));
 }
 
-async fn pod_exec(pods: Api<Pod>, ns: Namespace) -> anyhow::Result<()> {
+async fn pod_exec(pods: Api<Pod>, ns: Namespace, cmd: Arc<Vec<&str>>) -> anyhow::Result<()> {
     let lp_pod = ListParams::default();
     let pods_list: ObjectList<Pod> = pods.list(&lp_pod).await?;
 
@@ -58,8 +61,9 @@ async fn pod_exec(pods: Api<Pod>, ns: Namespace) -> anyhow::Result<()> {
                     container: Some(container.name),
                     ..Default::default()
                 };
-                let cmd = vec!["cat", "/etc/os-release"];
-                let mut attached = pods.exec(&pod.name_any(), cmd, &ap).await?;
+                let mut attached = pods
+                    .exec(&pod.name_any(), cmd.clone().to_vec(), &ap)
+                    .await?;
                 let mut stdout_reader = attached.stdout().unwrap();
                 let mut output = String::new();
                 stdout_reader.read_to_string(&mut output).await?;
