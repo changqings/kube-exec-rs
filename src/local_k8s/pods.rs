@@ -1,27 +1,21 @@
-use std::sync::Arc;
+use std::vec;
 
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 
 use kube::{
+    Client, ResourceExt,
     api::{Api, AttachParams, ListParams},
     core::ObjectList,
-    Client, ResourceExt,
 };
 use tokio::io::AsyncReadExt;
 
-#[derive(Debug)]
-pub struct OsVersion {
-    pub id: String,
-    pub version: String,
-}
-
-pub async fn pods_exec_log(command: Arc<Vec<&str>>) -> anyhow::Result<()> {
+pub async fn pods_exec_log(command: Vec<String>) -> anyhow::Result<(), anyhow::Error> {
     let (k8s_client, ns_all) = get_all_ns_resources().await;
     let lp_ns = ListParams::default();
     for ns in ns_all.list(&lp_ns).await? {
         let ns_name = ns.clone().metadata.name.unwrap();
         let pods: Api<Pod> = Api::namespaced(k8s_client.clone(), &ns_name);
-        pod_exec(pods, ns, command.clone()).await?
+        pod_exec(pods, command.clone()).await?
     }
 
     Ok(())
@@ -41,9 +35,12 @@ async fn get_all_ns_resources() -> (Client, Api<Namespace>) {
     return (client.clone(), Api::all(client));
 }
 
-async fn pod_exec(pods: Api<Pod>, ns: Namespace, cmd: Arc<Vec<&str>>) -> anyhow::Result<()> {
+async fn pod_exec(pods: Api<Pod>, cmd: Vec<String>) -> anyhow::Result<(), anyhow::Error> {
     let lp_pod = ListParams::default();
     let pods_list: ObjectList<Pod> = pods.list(&lp_pod).await?;
+    let mut bash_script = vec!["/bin/sh".to_string(), "-c".to_string()];
+
+    bash_script.extend(cmd);
 
     for pod in pods_list {
         if let Some(container) = pod
@@ -53,41 +50,37 @@ async fn pod_exec(pods: Api<Pod>, ns: Namespace, cmd: Arc<Vec<&str>>) -> anyhow:
         {
             if get_running_pod(&pod) {
                 let ap = AttachParams {
-                    stderr: false,
-                    stdin: true,
+                    stderr: true,
+                    stdin: false,
                     stdout: true,
-                    max_stdin_buf_size: Some(1024 * 1024),
-                    max_stdout_buf_size: Some(1024 * 1024 * 1024),
                     container: Some(container.name),
                     ..Default::default()
                 };
-                let mut attached = pods
-                    .exec(&pod.name_any(), cmd.clone().to_vec(), &ap)
-                    .await?;
+                let mut attached = pods.exec(&pod.name_any(), bash_script.clone(), &ap).await?;
                 let mut stdout_reader = attached.stdout().unwrap();
-                let mut output = String::new();
-                stdout_reader.read_to_string(&mut output).await?;
+                let mut stderr_reader = attached.stderr().unwrap();
 
-                let lines = output.lines();
-                let mut os = OsVersion {
-                    id: String::new(),
-                    version: String::new(),
-                };
-                for line in lines {
-                    if line.starts_with("ID=") {
-                        os.id = line.strip_prefix("ID=").unwrap().to_string();
-                    }
-                    if line.starts_with("VERSION_ID=") {
-                        os.version = line.strip_prefix("VERSION_ID=").unwrap().to_string();
-                    }
+                let mut std_output = String::new();
+                let mut err_output = String::new();
+                stdout_reader.read_to_string(&mut std_output).await?;
+                stderr_reader.read_to_string(&mut err_output).await?;
+
+                if err_output.is_empty() {
+                    println!(
+                        "ns={}, pod={}, stdout log:\n{}",
+                        pod.namespace().unwrap(),
+                        pod.name_any(),
+                        std_output,
+                    );
                 }
-                println!(
-                    "ns={} pod={} get os={} version={}",
-                    ns.name_any(),
-                    pod.name_any(),
-                    os.id,
-                    os.version
-                );
+                if std_output.is_empty() {
+                    println!(
+                        "ns={}, pod={}, stderr log:\n{}",
+                        pod.namespace().unwrap(),
+                        pod.name_any(),
+                        err_output,
+                    );
+                }
             }
         }
     }
