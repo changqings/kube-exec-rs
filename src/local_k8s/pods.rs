@@ -65,7 +65,7 @@ async fn pod_exec(pods: Api<Pod>, cmd: Vec<String>) -> anyhow::Result<(), anyhow
                 stdout_reader.read_to_string(&mut std_output).await?;
                 stderr_reader.read_to_string(&mut err_output).await?;
 
-                if err_output.is_empty() {
+                if !std_output.is_empty() {
                     println!(
                         "ns={}, pod={}, stdout log:\n{}",
                         pod.namespace().unwrap(),
@@ -73,7 +73,7 @@ async fn pod_exec(pods: Api<Pod>, cmd: Vec<String>) -> anyhow::Result<(), anyhow
                         std_output,
                     );
                 }
-                if std_output.is_empty() {
+                if !err_output.is_empty() {
                     println!(
                         "ns={}, pod={}, stderr log:\n{}",
                         pod.namespace().unwrap(),
